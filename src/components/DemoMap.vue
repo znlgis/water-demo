@@ -59,13 +59,13 @@ import GeoServerRestApi from '../geoserver/GeoServerRestApi';
 // ========== 响应式数据定义 ==========
 
 /** 地图中心点坐标 [经度, 纬度] */
-const center = ref([40, 40]);
+const center = ref([112, 25]);
 
 /** 地图投影坐标系 */
 const projection = ref("EPSG:4326");
 
 /** 地图初始缩放级别 */
-const zoom = ref(0);
+const zoom = ref(10);
 
 /** 动态图层列表：存储从GeoServer获取的单独图层 */
 const dynamicLayerList = ref([]);
@@ -98,7 +98,7 @@ onMounted(async () => {
       let layerName = layer.name;
       
       // 特殊处理：ne:countries图层默认显示，其他图层默认隐藏
-      if (layerName === 'ne:countries') {
+      if (layerName === 'postgis:counties_china') {
         dynamicLayerList.value.push({
           name: layerName,                 // 图层名称
           url: `/geoserver/wms`,          // WMS服务URL
