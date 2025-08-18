@@ -45,29 +45,19 @@
 
   </Map.OlMap>
   
-  <!-- 控制按钮组 -->
-  <div class="control-buttons">
-    <!-- AI对话框按钮 -->
-    <button class="control-button ai-button" @click="toggleChatDialog" title="AI智能助手">
-      🤖 AI助手
-    </button>
-    
-    <!-- 水务管理按钮 -->
-    <button class="control-button water-button" @click="toggleWaterPanel" title="水务管理控制台">
-      💧 水务管理
-    </button>
-  </div>
+  <!-- 控制按钮组 - AI优先设计，移除传统菜单 -->
+  <!-- 移除了传统的水务管理按钮，所有功能通过AI对话实现 -->
   
-  <!-- AI对话框组件 -->
+  <!-- AI对话框组件 - 永远可见，位于地图底部中央 -->
   <AiChatDialog 
-    :visible="chatDialogVisible"
+    :visible="true"
     @close="closeChatDialog"
     @geoJsonReceived="handleGeoJsonReceived"
     @clearLayers="clearGeoJsonLayers"
     @additionalDataReceived="handleAdditionalDataReceived"
   />
   
-  <!-- 水务管理面板组件 -->
+  <!-- 水务管理面板组件 - 保留用于整合功能，但不再直接显示 -->
   <WaterManagementPanel
     :visible="waterPanelVisible"
     @close="closeWaterPanel"
@@ -116,10 +106,10 @@ const mapRef = ref<MapRef | null>(null);
 
 // ========== AI对话框相关数据 ==========
 
-/** AI对话框显示状态 */
-const chatDialogVisible = ref(false);
+/** AI对话框始终可见 - AI优先设计 */
+// chatDialogVisible 不再需要，AI对话框永远显示
 
-/** 水务管理面板显示状态 */
+/** 水务管理面板显示状态 - 仅用于内部功能整合 */
 const waterPanelVisible = ref(false);
 
 /** GeoJSON向量图层列表 - 支持多个图层叠加 */
@@ -206,28 +196,16 @@ onMounted(async () => {
 // ========== AI对话框相关方法 ==========
 
 /**
- * 切换AI对话框显示状态
- */
-const toggleChatDialog = () => {
-  chatDialogVisible.value = !chatDialogVisible.value;
-};
-
-/**
- * 关闭AI对话框
+ * 关闭AI对话框 - 在AI优先设计中不常用，但保留接口兼容性
+ * 注意：AI对话框现在始终可见，此方法主要用于接口兼容
  */
 const closeChatDialog = () => {
-  chatDialogVisible.value = false;
+  // AI对话框始终可见，不执行关闭操作
+  console.log('AI对话框始终可见，AI优先设计');
 };
 
 /**
- * 切换水务管理面板显示状态
- */
-const toggleWaterPanel = () => {
-  waterPanelVisible.value = !waterPanelVisible.value;
-};
-
-/**
- * 关闭水务管理面板
+ * 关闭水务管理面板 - 保留用于内部功能整合
  */
 const closeWaterPanel = () => {
   waterPanelVisible.value = false;
@@ -744,87 +722,8 @@ const createWaterAssetStyle = (feature) => {
   left: 0;          /* 左侧对齐 */
 }
 
-/* 控制按钮组样式 */
-.control-buttons {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  z-index: 999;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* 通用控制按钮样式 */
-.control-button {
-  border: none;
-  border-radius: 25px;
-  padding: 12px 20px;
-  font-size: 16px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all 0.3s ease;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: white;
-  min-width: 140px;
-  justify-content: center;
-}
-
-/* AI助手按钮样式 */
-.ai-button {
-  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-}
-
-.ai-button:hover {
-  background: linear-gradient(135deg, #2980b9 0%, #1f618d 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(52, 152, 219, 0.4);
-}
-
-/* 水务管理按钮样式 */
-.water-button {
-  background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
-}
-
-.water-button:hover {
-  background: linear-gradient(135deg, #229954 0%, #1e8449 100%);
-  transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(39, 174, 96, 0.4);
-}
-
-.control-button:active {
-  transform: translateY(0);
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-  .control-buttons {
-    top: 10px;
-    right: 10px;
-    gap: 8px;
-  }
-  
-  .control-button {
-    padding: 10px 16px;
-    font-size: 14px;
-    min-width: 120px;
-  }
-}
-
-@media (max-width: 480px) {
-  .control-buttons {
-    flex-direction: row;
-    gap: 8px;
-  }
-  
-  .control-button {
-    padding: 8px 12px;
-    font-size: 12px;
-    min-width: auto;
-    flex: 1;
-  }
-}
+/* 
+  AI优先设计 - 移除了传统控制按钮样式
+  所有功能通过底部中央的AI对话框实现
+*/
 </style>
