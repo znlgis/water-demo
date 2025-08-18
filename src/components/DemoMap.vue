@@ -44,10 +44,22 @@
     <MapControls.OlScalelineControl/>
 
   </Map.OlMap>
+  
+  <!-- AI对话框按钮 -->
+  <button class="ai-chat-button" @click="toggleChatDialog">
+    🤖 AI助手
+  </button>
+  
+  <!-- AI对话框组件 -->
+  <AiChatDialog 
+    :visible="chatDialogVisible"
+    @close="closeChatDialog"
+    @geoJsonReceived="handleGeoJsonReceived"
+  />
 </template>
 
 <script lang="ts" setup>
-// 导入Vue组合式API函数
+//Vue组合式API函数
 import {onMounted, ref} from "vue";
 // 导入OpenLayers Map类型定义
 import type MapRef from "ol/Map";
@@ -55,6 +67,13 @@ import type MapRef from "ol/Map";
 import {Layers, Map, MapControls, Sources} from "vue3-openlayers";
 // 导入GeoServer REST API类
 import GeoServerRestApi from '../geoserver/GeoServerRestApi';
+// 导入AI对话框组件
+import AiChatDialog from './AiChatDialog.vue';
+// 导入OpenLayers用于GeoJSON处理
+import VectorLayer from 'ol/layer/Vector';
+import VectorSource from 'ol/source/Vector';
+import GeoJSON from 'ol/format/GeoJSON';
+import {Style, Stroke, Fill, Circle} from 'ol/style';
 
 // ========== 响应式数据定义 ==========
 
@@ -75,6 +94,14 @@ const dynamicLayerGroupList = ref([]);
 
 /** 地图实例引用 */
 const mapRef = ref<MapRef | null>(null);
+
+// ========== AI对话框相关数据 ==========
+
+/** AI对话框显示状态 */
+const chatDialogVisible = ref(false);
+
+/** GeoJSON向量图层 */
+let geoJsonLayer = null;
 
 // ========== 生命周期钩子 ==========
 
@@ -153,6 +180,185 @@ onMounted(async () => {
     console.error("Failed to load layers:", error);
   }
 });
+
+// ========== AI对话框相关方法 ==========
+
+/**
+ * 切换AI对话框显示状态
+ */
+const toggleChatDialog = () => {
+  chatDialogVisible.value = !chatDialogVisible.value;
+};
+
+/**
+ * 关闭AI对话框
+ */
+const closeChatDialog = () => {
+  chatDialogVisible.value = false;
+};
+
+/**
+ * 处理AI返回的GeoJSON数据
+ * @param geoJson AI返回的GeoJSON对象
+ */
+const handleGeoJsonReceived = (geoJson) => {
+  if (!geoJson || !mapRef.value) return;
+  
+  try {
+    // 获取实际的OpenLayers Map对象
+    const map = mapRef.value.map;
+    
+    if (!map) {
+      console.error('无法获取地图实例');
+      return;
+    }
+    
+    // 如果之前存在GeoJSON图层，先移除
+    if (geoJsonLayer) {
+      map.removeLayer(geoJsonLayer);
+    }
+    
+    // 创建GeoJSON格式解析器
+    const format = new GeoJSON();
+    
+    // 创建向量数据源
+    const source = new VectorSource({
+      features: format.readFeatures(geoJson, {
+        featureProjection: 'EPSG:4326'
+      })
+    });
+    
+    // 创建样式
+    const style = new Style({
+      stroke: new Stroke({
+        color: 'red',
+        width: 2
+      }),
+      fill: new Fill({
+        color: 'rgba(255, 0, 0, 0.1)'
+      }),
+      image: new Circle({
+        radius: 8,
+        fill: new Fill({
+          color: 'red'
+        }),
+        stroke: new Stroke({
+          color: 'white',
+          width: 2
+        })
+      })
+    });
+    
+    // 创建向量图层
+    geoJsonLayer = new VectorLayer({
+      source: source,
+      style: style
+    });
+    
+    // 添加图层到地图
+    map.addLayer(geoJsonLayer);
+    
+    // 定位到GeoJSON数据
+    fitToGeoJsonData(geoJson);
+    
+  } catch (error) {
+    console.error('处理GeoJSON数据失败:', error);
+  }
+};
+
+/**
+ * 将地图视图定位到GeoJSON数据范围
+ * @param geoJson GeoJSON对象
+ */
+const fitToGeoJsonData = (geoJson) => {
+  if (!mapRef.value || !geoJson) return;
+  
+  try {
+    // 获取实际的OpenLayers Map对象
+    const map = mapRef.value.map;
+    
+    if (!map) {
+      console.error('无法获取地图实例');
+      return;
+    }
+    
+    // 计算GeoJSON数据的边界框
+    const bounds = calculateGeoJsonBounds(geoJson);
+    
+    if (bounds) {
+      // 设置地图视图以适应边界框
+      const view = map.getView();
+      
+      // 计算中心点
+      const centerLon = (bounds.minLon + bounds.maxLon) / 2;
+      const centerLat = (bounds.minLat + bounds.maxLat) / 2;
+      
+      // 计算合适的缩放级别
+      const lonDiff = bounds.maxLon - bounds.minLon;
+      const latDiff = bounds.maxLat - bounds.minLat;
+      const maxDiff = Math.max(lonDiff, latDiff);
+      
+      let zoomLevel = 10;
+      if (maxDiff < 0.01) zoomLevel = 15;
+      else if (maxDiff < 0.1) zoomLevel = 12;
+      else if (maxDiff < 1) zoomLevel = 9;
+      else if (maxDiff < 5) zoomLevel = 7;
+      else zoomLevel = 5;
+      
+      // 设置地图中心和缩放级别
+      view.setCenter([centerLon, centerLat]);
+      view.setZoom(zoomLevel);
+    }
+  } catch (error) {
+    console.error('定位到GeoJSON数据失败:', error);
+  }
+};
+
+/**
+ * 计算GeoJSON数据的边界框
+ * @param geoJson GeoJSON对象
+ * @returns 边界框对象或null
+ */
+const calculateGeoJsonBounds = (geoJson) => {
+  try {
+    let minLon = Infinity, maxLon = -Infinity;
+    let minLat = Infinity, maxLat = -Infinity;
+    
+    const processCoordinates = (coords, type) => {
+      if (type === 'Point') {
+        const [lon, lat] = coords;
+        minLon = Math.min(minLon, lon);
+        maxLon = Math.max(maxLon, lon);
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+      } else if (type === 'Polygon') {
+        coords[0].forEach(([lon, lat]) => {
+          minLon = Math.min(minLon, lon);
+          maxLon = Math.max(maxLon, lon);
+          minLat = Math.min(minLat, lat);
+          maxLat = Math.max(maxLat, lat);
+        });
+      }
+    };
+    
+    if (geoJson.type === 'FeatureCollection') {
+      geoJson.features.forEach(feature => {
+        processCoordinates(feature.geometry.coordinates, feature.geometry.type);
+      });
+    } else if (geoJson.type === 'Feature') {
+      processCoordinates(geoJson.geometry.coordinates, geoJson.geometry.type);
+    }
+    
+    if (minLon !== Infinity) {
+      return { minLon, maxLon, minLat, maxLat };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('计算边界框失败:', error);
+    return null;
+  }
+};
 </script>
 
 <style scoped>
@@ -163,5 +369,36 @@ onMounted(async () => {
   position: absolute; /* 绝对定位 */
   top: 0;           /* 顶部对齐 */
   left: 0;          /* 左侧对齐 */
+}
+
+/* AI对话框按钮样式 */
+.ai-chat-button {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 999;
+  background: #3498db;
+  color: white;
+  border: none;
+  border-radius: 25px;
+  padding: 12px 20px;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-chat-button:hover {
+  background: #2980b9;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(52, 152, 219, 0.4);
+}
+
+.ai-chat-button:active {
+  transform: translateY(0);
 }
 </style>
