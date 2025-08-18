@@ -45,10 +45,18 @@
 
   </Map.OlMap>
   
-  <!-- AI对话框按钮 -->
-  <button class="ai-chat-button" @click="toggleChatDialog">
-    🤖 AI助手
-  </button>
+  <!-- 控制按钮组 -->
+  <div class="control-buttons">
+    <!-- AI对话框按钮 -->
+    <button class="control-button ai-button" @click="toggleChatDialog" title="AI智能助手">
+      🤖 AI助手
+    </button>
+    
+    <!-- 水务管理按钮 -->
+    <button class="control-button water-button" @click="toggleWaterPanel" title="水务管理控制台">
+      💧 水务管理
+    </button>
+  </div>
   
   <!-- AI对话框组件 -->
   <AiChatDialog 
@@ -56,6 +64,14 @@
     @close="closeChatDialog"
     @geoJsonReceived="handleGeoJsonReceived"
     @clearLayers="clearGeoJsonLayers"
+    @additionalDataReceived="handleAdditionalDataReceived"
+  />
+  
+  <!-- 水务管理面板组件 -->
+  <WaterManagementPanel
+    :visible="waterPanelVisible"
+    @close="closeWaterPanel"
+    @queryExecuted="handleWaterManagementQuery"
   />
 </template>
 
@@ -70,6 +86,8 @@ import {Layers, Map, MapControls, Sources} from "vue3-openlayers";
 import GeoServerRestApi from '../geoserver/GeoServerRestApi';
 // 导入AI对话框组件
 import AiChatDialog from './AiChatDialog.vue';
+// 导入水务管理面板组件
+import WaterManagementPanel from './WaterManagementPanel.vue';
 // 导入OpenLayers用于GeoJSON处理
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
@@ -100,6 +118,9 @@ const mapRef = ref<MapRef | null>(null);
 
 /** AI对话框显示状态 */
 const chatDialogVisible = ref(false);
+
+/** 水务管理面板显示状态 */
+const waterPanelVisible = ref(false);
 
 /** GeoJSON向量图层列表 - 支持多个图层叠加 */
 const geoJsonLayers = ref([]);
@@ -196,6 +217,20 @@ const toggleChatDialog = () => {
  */
 const closeChatDialog = () => {
   chatDialogVisible.value = false;
+};
+
+/**
+ * 切换水务管理面板显示状态
+ */
+const toggleWaterPanel = () => {
+  waterPanelVisible.value = !waterPanelVisible.value;
+};
+
+/**
+ * 关闭水务管理面板
+ */
+const closeWaterPanel = () => {
+  waterPanelVisible.value = false;
 };
 
 /**
@@ -585,6 +620,118 @@ const calculateGeoJsonBounds = (geoJson) => {
     return null;
   }
 };
+
+// ========== 水务管理功能方法 ==========
+
+/**
+ * 处理AI返回的额外数据
+ * @param additionalData AI返回的额外数据对象
+ */
+const handleAdditionalDataReceived = (additionalData) => {
+  console.log('收到额外数据:', additionalData);
+  // 这里可以根据数据类型做特定处理，如显示图表、生成报告等
+  
+  // 如果是统计数据，可以触发图表显示
+  if (additionalData.type === 'statisticsReport') {
+    // 可以在这里触发显示统计图表的逻辑
+    console.log('统计报表数据:', additionalData.statistics);
+  }
+  
+  // 如果是数据验证结果，可以显示验证状态
+  if (additionalData.type === 'dataValidation') {
+    console.log('数据验证结果:', additionalData.validation);
+  }
+};
+
+/**
+ * 处理水务管理面板查询
+ * @param result 查询结果
+ */
+const handleWaterManagementQuery = (result) => {
+  console.log('水务管理查询结果:', result);
+  
+  // 处理GeoJSON数据
+  if (result.geoJson) {
+    handleGeoJsonReceived(result.geoJson);
+  }
+  
+  // 处理额外数据
+  if (result.additionalData) {
+    handleAdditionalDataReceived(result.additionalData);
+  }
+  
+  // 关闭水务管理面板
+  closeWaterPanel();
+  
+  // 如果AI对话框未打开，可以选择性打开以显示结果
+  if (!chatDialogVisible.value) {
+    // 这里可以选择是否自动打开AI对话框来显示详细结果
+    // chatDialogVisible.value = true;
+  }
+};
+
+/**
+ * 创建水务资产专用样式
+ * @param feature GeoJSON特征对象
+ * @returns OpenLayers样式对象
+ */
+const createWaterAssetStyle = (feature) => {
+  const properties = feature.getProperties();
+  const assetType = properties.assetType || '';
+  const material = properties.material || '';
+  const status = properties.status || '正常';
+  const riskLevel = properties.riskLevel || '低';
+  
+  // 根据资产类型和状态选择颜色
+  let strokeColor = '#3498db'; // 默认蓝色
+  let fillColor = 'rgba(52, 152, 219, 0.2)';
+  
+  // 根据资产类型调整颜色
+  if (assetType.includes('管线')) {
+    strokeColor = material === '铸铁' ? '#e67e22' : '#27ae60';
+    fillColor = material === '铸铁' ? 'rgba(230, 126, 34, 0.3)' : 'rgba(39, 174, 96, 0.3)';
+  } else if (assetType.includes('阀门')) {
+    strokeColor = '#8e44ad';
+    fillColor = 'rgba(142, 68, 173, 0.3)';
+  } else if (assetType.includes('水表')) {
+    strokeColor = '#f39c12';
+    fillColor = 'rgba(243, 156, 18, 0.3)';
+  }
+  
+  // 根据状态调整透明度和样式
+  if (status === '维护中') {
+    strokeColor = '#e74c3c';
+    fillColor = 'rgba(231, 76, 60, 0.4)';
+  }
+  
+  // 根据风险等级调整边框宽度
+  let strokeWidth = 2;
+  if (riskLevel === '高') {
+    strokeWidth = 4;
+  } else if (riskLevel === '中') {
+    strokeWidth = 3;
+  }
+  
+  return new Style({
+    stroke: new Stroke({
+      color: strokeColor,
+      width: strokeWidth
+    }),
+    fill: new Fill({
+      color: fillColor
+    }),
+    image: new Circle({
+      radius: assetType.includes('管线') ? 6 : 8,
+      stroke: new Stroke({
+        color: strokeColor,
+        width: strokeWidth
+      }),
+      fill: new Fill({
+        color: fillColor
+      })
+    })
+  });
+};
 </script>
 
 <style scoped>
@@ -597,34 +744,87 @@ const calculateGeoJsonBounds = (geoJson) => {
   left: 0;          /* 左侧对齐 */
 }
 
-/* AI对话框按钮样式 */
-.ai-chat-button {
+/* 控制按钮组样式 */
+.control-buttons {
   position: fixed;
   top: 20px;
   right: 20px;
   z-index: 999;
-  background: #3498db;
-  color: white;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 通用控制按钮样式 */
+.control-button {
   border: none;
   border-radius: 25px;
   padding: 12px 20px;
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   transition: all 0.3s ease;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: white;
+  min-width: 140px;
+  justify-content: center;
 }
 
-.ai-chat-button:hover {
-  background: #2980b9;
+/* AI助手按钮样式 */
+.ai-button {
+  background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+}
+
+.ai-button:hover {
+  background: linear-gradient(135deg, #2980b9 0%, #1f618d 100%);
   transform: translateY(-2px);
   box-shadow: 0 6px 16px rgba(52, 152, 219, 0.4);
 }
 
-.ai-chat-button:active {
+/* 水务管理按钮样式 */
+.water-button {
+  background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+}
+
+.water-button:hover {
+  background: linear-gradient(135deg, #229954 0%, #1e8449 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(39, 174, 96, 0.4);
+}
+
+.control-button:active {
   transform: translateY(0);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .control-buttons {
+    top: 10px;
+    right: 10px;
+    gap: 8px;
+  }
+  
+  .control-button {
+    padding: 10px 16px;
+    font-size: 14px;
+    min-width: 120px;
+  }
+}
+
+@media (max-width: 480px) {
+  .control-buttons {
+    flex-direction: row;
+    gap: 8px;
+  }
+  
+  .control-button {
+    padding: 8px 12px;
+    font-size: 12px;
+    min-width: auto;
+    flex: 1;
+  }
 }
 </style>
