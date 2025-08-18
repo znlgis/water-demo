@@ -29,6 +29,10 @@
           :class="['message', message.type]"
         >
           <div class="message-content" v-html="formatMessageContent(message.content)"></div>
+          <!-- 额外数据展示区域 -->
+          <div v-if="message.additionalData" class="additional-data-container">
+            <WaterDataVisualization :data="message.additionalData" />
+          </div>
           <div class="message-time">{{ formatTime(message.timestamp) }}</div>
         </div>
         <div v-if="isLoading" class="message ai loading">
@@ -54,7 +58,7 @@
           v-model="currentMessage"
           @keyup.enter="sendMessage"
           :disabled="isLoading"
-          placeholder="请输入您的问题，例如：显示北京市的边界"
+          placeholder="请输入您的问题，例如：显示湾仔区的PVC淡水管线，或显示服役超过30年的铸铁阀门"
           class="chat-input"
         />
         <button 
@@ -73,6 +77,7 @@
 <script lang="ts" setup>
 import { ref, nextTick, defineEmits } from 'vue';
 import DifyApiService from '../services/DifyApiService';
+import WaterDataVisualization from './WaterDataVisualization.vue';
 
 // 组件属性
 interface Props {
@@ -86,6 +91,7 @@ const emit = defineEmits<{
   close: [];
   geoJsonReceived: [geoJson: any];
   clearLayers: [];
+  additionalDataReceived: [data: any];
 }>();
 
 // 消息接口定义
@@ -94,6 +100,7 @@ interface Message {
   type: 'user' | 'ai';
   content: string;
   timestamp: Date;
+  additionalData?: any;
 }
 
 // 响应式数据
@@ -147,7 +154,8 @@ const sendMessage = async () => {
       id: messageIdCounter++,
       type: 'ai',
       content: response.content,
-      timestamp: new Date()
+      timestamp: new Date(),
+      additionalData: response.additionalData || null
     };
     
     messages.value.push(aiMessage);
@@ -155,6 +163,11 @@ const sendMessage = async () => {
     // 检查是否包含GeoJSON数据
     if (response.geoJson) {
       emit('geoJsonReceived', response.geoJson);
+    }
+
+    // 处理额外数据（如统计图表、验证结果等）
+    if (response.additionalData) {
+      emit('additionalDataReceived', response.additionalData);
     }
     
   } catch (error) {
