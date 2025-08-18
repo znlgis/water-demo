@@ -32,11 +32,11 @@ export default class Layers {
                 return response.data;
             } else {
                 // 记录非200状态的响应
-                console.err(JSON.stringify(response));
+                console.error(JSON.stringify(response));
             }
         } catch (error) {
             // 记录并重新抛出错误
-            console.err(error);
+            console.error(error);
             throw error;
         }
     };
@@ -61,11 +61,11 @@ export default class Layers {
                 return response.data;
             } else {
                 // 记录非200状态的响应
-                console.err(JSON.stringify(response));
+                console.error(JSON.stringify(response));
             }
         } catch (error) {
             // 记录并重新抛出错误
-            console.err(error);
+            console.error(error);
             throw error;
         }
     };
@@ -91,11 +91,11 @@ export default class Layers {
                 return response.data;
             } else {
                 // 记录非200状态的响应
-                console.err(JSON.stringify(response));
+                console.error(JSON.stringify(response));
             }
         } catch (error) {
             // 记录并重新抛出错误
-            console.err(error);
+            console.error(error);
             throw error;
         }
     };
