@@ -9,69 +9,56 @@
   <!-- OpenLayers地图容器 -->
   <Map.OlMap id="map" ref="mapRef" :controls="[]">
     <!-- 地图视图配置：中心点、投影、缩放级别 -->
-    <Map.OlView
-        ref="view"
-        :center="center"
-        :projection="projection"
-        :zoom="zoom"
-    />
+    <Map.OlView ref="view" :center="center" :projection="projection" :zoom="zoom" />
 
     <!-- 动态图层组：通过GeoServer API获取的图层组 -->
     <Layers.OlLayerGroup v-for="group in dynamicLayerGroupList" :key="group.name" :title="group.name"
-                         :visible="group.visible">
+      :visible="group.visible">
       <!-- 图层组内的瓦片图层 -->
       <Layers.OlTileLayer v-for="layer in group.layers" :key="layer.name" :title="layer.name" :visible="layer.visible">
-        <Sources.OlSourceTileWms :layers="layer.name" :url="layer.url"/>
+        <Sources.OlSourceTileWms :layers="layer.name" :url="layer.url" />
       </Layers.OlTileLayer>
     </Layers.OlLayerGroup>
 
     <!-- 动态图层：通过GeoServer API获取的单独图层 -->
     <Layers.OlTileLayer v-for="layer in dynamicLayerList" :key="layer.name" :title="layer.name"
-                        :visible="layer.visible">
-      <Sources.OlSourceTileWms :layers="layer.name" :url="layer.url"/>
+      :visible="layer.visible">
+      <Sources.OlSourceTileWms :layers="layer.name" :url="layer.url" />
     </Layers.OlTileLayer>
 
     <!-- 地图控件：图层切换器（展开状态） -->
-    <MapControls.OlLayerswitcherControl :collapsed="false"/>
+    <MapControls.OlLayerswitcherControl :collapsed="false" />
 
     <!-- 地图控件：缩放控制 -->
-    <MapControls.OlZoomControl/>
+    <MapControls.OlZoomControl />
 
     <!-- 地图控件：右键上下文菜单 -->
-    <MapControls.OlContextMenuControl/>
+    <MapControls.OlContextMenuControl />
 
     <!-- 地图控件：比例尺 -->
-    <MapControls.OlScalelineControl/>
+    <MapControls.OlScalelineControl />
 
   </Map.OlMap>
-  
+
   <!-- 控制按钮组 - AI优先设计，移除传统菜单 -->
   <!-- 移除了传统的水务管理按钮，所有功能通过AI对话实现 -->
-  
+
   <!-- AI对话框组件 - 永远可见，位于地图底部中央 -->
-  <AiChatDialog 
-    :visible="true"
-    @close="closeChatDialog"
-    @geoJsonReceived="handleGeoJsonReceived"
-    @clearLayers="clearGeoJsonLayers"
-    @additionalDataReceived="handleAdditionalDataReceived"
-  />
-  
+  <AiChatDialog :visible="true" @close="closeChatDialog" @geoJsonReceived="handleGeoJsonReceived"
+    @clearLayers="clearGeoJsonLayers" @additionalDataReceived="handleAdditionalDataReceived" />
+
   <!-- 水务管理面板组件 - 保留用于整合功能，但不再直接显示 -->
-  <WaterManagementPanel
-    :visible="waterPanelVisible"
-    @close="closeWaterPanel"
-    @queryExecuted="handleWaterManagementQuery"
-  />
+  <WaterManagementPanel :visible="waterPanelVisible" @close="closeWaterPanel"
+    @queryExecuted="handleWaterManagementQuery" />
 </template>
 
 <script lang="ts" setup>
 //Vue组合式API函数
-import {onMounted, ref} from "vue";
+import { onMounted, ref } from "vue";
 // 导入OpenLayers Map类型定义
 import type MapRef from "ol/Map";
 // 导入Vue3-OpenLayers组件
-import {Layers, Map, MapControls, Sources} from "vue3-openlayers";
+import { Layers, Map, MapControls, Sources } from "vue3-openlayers";
 // 导入GeoServer REST API类
 import GeoServerRestApi from '../geoserver/GeoServerRestApi';
 // 导入AI对话框组件
@@ -82,7 +69,7 @@ import WaterManagementPanel from './WaterManagementPanel.vue';
 import VectorLayer from 'ol/layer/Vector';
 import VectorSource from 'ol/source/Vector';
 import GeoJSON from 'ol/format/GeoJSON';
-import {Style, Stroke, Fill, Circle} from 'ol/style';
+import { Style, Stroke, Fill, Circle } from 'ol/style';
 
 // ========== 响应式数据定义 ==========
 
@@ -127,56 +114,23 @@ onMounted(async () => {
     let geoServerRestApi = new GeoServerRestApi();
 
     // ========== 加载单独图层 ==========
-    
+
     // 获取所有图层列表
-    let layers = await geoServerRestApi.layers.getLayers();
-    let layerList = layers.layers.layer;
-    
-    // 遍历图层列表，配置每个图层
-    layerList.forEach((layer: any) => {
-      let layerName = layer.name;
-      dynamicLayerList.value.push({
-          name: layerName,                 // 图层名称
-          url: `/geoserver/wms`,          // WMS服务URL
-          visible: true,                  // 默认可见
-        });
+    dynamicLayerList.value.push({
+      name: `mian`,                 // 图层名称
+      url: `/geoserver/wms`,          // WMS服务URL
+      visible: true,                  // 默认可见
     });
-
-    // ========== 加载图层组 ==========
-    
-    // 获取所有图层组列表
-    let groups = await geoServerRestApi.layers.getLayerGroups();
-    
-    // 遍历图层组列表
-    for (let group of groups.layerGroups.layerGroup) {
-      let groupName = group.name;
-      
-      // 获取图层组详细信息
-      let groupLayers = await geoServerRestApi.layers.getLayerGroup(groupName);
-      
-      // 创建图层组对象
-      let layerGroups = {
-        name: groupName,                  // 图层组名称
-        layers: [],                       // 图层组内的图层列表
-        visible: false,                   // 默认隐藏
-      };
-      
-      // 遍历图层组内的已发布对象
-      groupLayers.layerGroup.publishables.published.forEach((layer: any) => {
-        // 只处理类型为"layer"的对象，跳过其他类型
-        if (layer["@type"] !== "layer") return;
-
-        // 添加图层到图层组
-        layerGroups.layers.push({
-          name: layer.name,               // 图层名称
-          url: `/geoserver/wms`,         // WMS服务URL
-          visible: false,                // 默认隐藏
-        });
-      });
-      
-      // 将配置好的图层组添加到列表
-      dynamicLayerGroupList.value.push(layerGroups);
-    }
+    dynamicLayerList.value.push({
+      name: `xian`,                 // 图层名称
+      url: `/geoserver/wms`,          // WMS服务URL
+      visible: true,                  // 默认可见
+    });
+    dynamicLayerList.value.push({
+      name: `dian`,                 // 图层名称
+      url: `/geoserver/wms`,          // WMS服务URL
+      visible: true,                  // 默认可见
+    });
   } catch (error) {
     // 错误处理：记录加载失败信息
     console.error("Failed to load layers:", error);
@@ -205,54 +159,76 @@ const closeWaterPanel = () => {
  * 处理AI返回的GeoJSON数据
  * @param geoJson AI返回的GeoJSON对象
  */
-const handleGeoJsonReceived = (geoJson) => {
-  if (!geoJson || !mapRef.value) return;
-  
+const handleGeoJsonReceived = (geoJsonInput) => {
+  if (!geoJsonInput || !mapRef.value) return;
+
   try {
-    // 获取实际的OpenLayers Map对象
     const map = mapRef.value.map;
-    
     if (!map) {
       console.error('无法获取地图实例');
       return;
     }
-    
-    // 创建GeoJSON格式解析器
+
+    // 统一将输入转换成 FeatureCollection
+    const toFeatureCollection = (input) => {
+      if (Array.isArray(input)) {
+        // 输入是 geometry 数组
+        return {
+          type: 'FeatureCollection',
+          features: input
+            .filter(g => g && g.type && g.coordinates)
+            .map((g, i) => ({
+              type: 'Feature',
+              geometry: g,
+              properties: { _idx: i }
+            }))
+        };
+      }
+      if (input.type === 'FeatureCollection') return input;
+      if (input.type === 'Feature') {
+        return { type: 'FeatureCollection', features: [input] };
+      }
+      // 可能是单个 geometry
+      if (input.type && input.coordinates) {
+        return {
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            geometry: input,
+            properties: {}
+          }]
+        };
+      }
+      console.warn('无法识别的GeoJSON输入格式');
+      return null;
+    };
+
+    const featureCollection = toFeatureCollection(geoJsonInput);
+    if (!featureCollection || !featureCollection.features.length) {
+      console.warn('没有可渲染的几何数据');
+      return;
+    }
+
     const format = new GeoJSON();
-    
-    // 创建向量数据源
     const source = new VectorSource({
-      features: format.readFeatures(geoJson, {
+      features: format.readFeatures(featureCollection, {
+        dataProjection: 'EPSG:4326',
         featureProjection: 'EPSG:4326'
       })
     });
-    
-    // 创建增强的样式函数
+
     const getFeatureStyle = (feature) => {
-      const geometry = feature.getGeometry();
-      const geometryType = geometry.getType();
-      
+      const geometryType = feature.getGeometry().getType();
       if (geometryType === 'Point') {
-        // 点：动态涟漪标记
         return new Style({
           image: new Circle({
             radius: 12,
-            fill: new Fill({
-              color: 'rgba(52, 152, 219, 0.8)'
-            }),
-            stroke: new Stroke({
-              color: '#3498db',
-              width: 3
-            })
+            fill: new Fill({ color: 'rgba(52,152,219,0.8)' }),
+            stroke: new Stroke({ color: '#3498db', width: 3 })
           }),
-          // 外层涟漪效果
-          stroke: new Stroke({
-            color: 'rgba(52, 152, 219, 0.3)',
-            width: 8
-          })
+          stroke: new Stroke({ color: 'rgba(52,152,219,0.3)', width: 8 })
         });
       } else if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
-        // 线条：渐变色流动效果
         return new Style({
           stroke: new Stroke({
             color: '#e74c3c',
@@ -262,49 +238,35 @@ const handleGeoJsonReceived = (geoJson) => {
           })
         });
       } else {
-        // 多边形：半透明填充 + 脉冲边界
         return new Style({
-          stroke: new Stroke({
-            color: '#e74c3c',
-            width: 3
-          }),
-          fill: new Fill({
-            color: 'rgba(231, 76, 60, 0.15)'
-          })
+          stroke: new Stroke({ color: '#e74c3c', width: 3 }),
+          fill: new Fill({ color: 'rgba(231,76,60,0.15)' })
         });
       }
     };
-    
-    // 创建向量图层
+
     const newLayer = new VectorLayer({
-      source: source,
+      source,
       style: getFeatureStyle,
       opacity: 0
     });
-    
-    // 添加图层到地图（智能叠加，不覆盖）
+
     map.addLayer(newLayer);
     geoJsonLayers.value.push(newLayer);
-    
-    // 添加淡入动画
     animateLayerFadeIn(newLayer);
-    
-    // 添加脉冲边界动画（仅对多边形）
-    const features = source.getFeatures();
-    features.forEach(feature => {
-      const geometry = feature.getGeometry();
-      if (geometry.getType() === 'Polygon' || geometry.getType() === 'MultiPolygon') {
-        startPulseAnimation(feature, newLayer);
-      } else if (geometry.getType() === 'Point') {
-        startRippleAnimation(feature, newLayer);
+
+    source.getFeatures().forEach(f => {
+      const t = f.getGeometry().getType();
+      if (t === 'Polygon' || t === 'MultiPolygon') {
+        startPulseAnimation(f, newLayer);
+      } else if (t === 'Point') {
+        startRippleAnimation(f, newLayer);
       }
     });
-    
-    // 智能定位到新的GeoJSON数据
-    fitToGeoJsonData(geoJson, geoJsonLayers.value.length === 1);
-    
-  } catch (error) {
-    console.error('处理GeoJSON数据失败:', error);
+
+    fitToGeoJsonData(featureCollection, geoJsonLayers.value.length === 1);
+  } catch (e) {
+    console.error('处理GeoJSON数据失败:', e);
   }
 };
 
@@ -313,20 +275,20 @@ const handleGeoJsonReceived = (geoJson) => {
  */
 const clearGeoJsonLayers = () => {
   if (!mapRef.value) return;
-  
+
   const map = mapRef.value.map;
   if (!map) return;
-  
+
   // 为每个图层添加溶解动画
   geoJsonLayers.value.forEach((layer, index) => {
     animateLayerFadeOut(layer, () => {
       map.removeLayer(layer);
     }, index * 200); // 错开动画时间
   });
-  
+
   // 清空图层数组
   geoJsonLayers.value = [];
-  
+
   // 重置地图视野到初始位置
   setTimeout(() => {
     resetMapView();
@@ -376,7 +338,7 @@ const startPulseAnimation = (feature, layer) => {
     pulse += 0.1;
     const width = 3 + Math.sin(pulse) * 2;
     const alpha = 0.5 + Math.sin(pulse) * 0.3;
-    
+
     const style = new Style({
       stroke: new Stroke({
         color: `rgba(231, 76, 60, ${alpha})`,
@@ -386,7 +348,7 @@ const startPulseAnimation = (feature, layer) => {
         color: 'rgba(231, 76, 60, 0.15)'
       })
     });
-    
+
     feature.setStyle(style);
     requestAnimationFrame(animate);
   };
@@ -402,7 +364,7 @@ const startRippleAnimation = (feature, layer) => {
     ripple += 0.15;
     const radius = 12 + Math.sin(ripple) * 6;
     const alpha = 0.8 - Math.abs(Math.sin(ripple)) * 0.3;
-    
+
     const style = new Style({
       image: new Circle({
         radius: radius,
@@ -415,7 +377,7 @@ const startRippleAnimation = (feature, layer) => {
         })
       })
     });
-    
+
     feature.setStyle(style);
     requestAnimationFrame(animate);
   };
@@ -427,14 +389,14 @@ const startRippleAnimation = (feature, layer) => {
  */
 const resetMapView = () => {
   if (!mapRef.value) return;
-  
+
   const map = mapRef.value.map;
   if (!map) return;
-  
+
   const view = map.getView();
   view.animate({
-    center: [112, 25],
-    zoom: 10,
+    center: [118, 32],
+    zoom: 7,
     duration: 1000
   });
 };
@@ -446,39 +408,39 @@ const resetMapView = () => {
  */
 const fitToGeoJsonData = (geoJson, isFirstLayer = false) => {
   if (!mapRef.value || !geoJson) return;
-  
+
   try {
     // 获取实际的OpenLayers Map对象
     const map = mapRef.value.map;
-    
+
     if (!map) {
       console.error('无法获取地图实例');
       return;
     }
-    
+
     // 计算GeoJSON数据的边界框
     const bounds = calculateGeoJsonBounds(geoJson);
-    
+
     if (bounds) {
       // 设置地图视图以适应边界框
       const view = map.getView();
-      
+
       // 计算中心点
       const centerLon = (bounds.minLon + bounds.maxLon) / 2;
       const centerLat = (bounds.minLat + bounds.maxLat) / 2;
-      
+
       // 计算合适的缩放级别
       const lonDiff = bounds.maxLon - bounds.minLon;
       const latDiff = bounds.maxLat - bounds.minLat;
       const maxDiff = Math.max(lonDiff, latDiff);
-      
+
       let zoomLevel = 10;
       if (maxDiff < 0.01) zoomLevel = 15;
       else if (maxDiff < 0.1) zoomLevel = 12;
       else if (maxDiff < 1) zoomLevel = 9;
       else if (maxDiff < 5) zoomLevel = 7;
       else zoomLevel = 5;
-      
+
       // 如果是第一个图层或用户要求，使用动画定位
       if (isFirstLayer) {
         view.animate({
@@ -495,14 +457,14 @@ const fitToGeoJsonData = (geoJson, isFirstLayer = false) => {
           const allLonDiff = allBounds.maxLon - allBounds.minLon;
           const allLatDiff = allBounds.maxLat - allBounds.minLat;
           const allMaxDiff = Math.max(allLonDiff, allLatDiff);
-          
+
           let allZoomLevel = 10;
           if (allMaxDiff < 0.01) allZoomLevel = 15;
           else if (allMaxDiff < 0.1) allZoomLevel = 12;
           else if (allMaxDiff < 1) allZoomLevel = 9;
           else if (allMaxDiff < 5) allZoomLevel = 7;
           else allZoomLevel = 5;
-          
+
           view.animate({
             center: [allCenterLon, allCenterLat],
             zoom: allZoomLevel,
@@ -522,11 +484,11 @@ const fitToGeoJsonData = (geoJson, isFirstLayer = false) => {
 const calculateAllLayersBounds = () => {
   let minLon = Infinity, maxLon = -Infinity;
   let minLat = Infinity, maxLat = -Infinity;
-  
+
   geoJsonLayers.value.forEach(layer => {
     const source = layer.getSource();
     const features = source.getFeatures();
-    
+
     features.forEach(feature => {
       const geometry = feature.getGeometry();
       const extent = geometry.getExtent();
@@ -536,7 +498,7 @@ const calculateAllLayersBounds = () => {
       maxLat = Math.max(maxLat, extent[3]);
     });
   });
-  
+
   if (minLon !== Infinity) {
     return { minLon, maxLon, minLat, maxLat };
   }
@@ -552,7 +514,7 @@ const calculateGeoJsonBounds = (geoJson) => {
   try {
     let minLon = Infinity, maxLon = -Infinity;
     let minLat = Infinity, maxLat = -Infinity;
-    
+
     const processCoordinates = (coords, type) => {
       if (type === 'Point') {
         const [lon, lat] = coords;
@@ -569,7 +531,7 @@ const calculateGeoJsonBounds = (geoJson) => {
         });
       }
     };
-    
+
     if (geoJson.type === 'FeatureCollection') {
       geoJson.features.forEach(feature => {
         processCoordinates(feature.geometry.coordinates, feature.geometry.type);
@@ -577,11 +539,11 @@ const calculateGeoJsonBounds = (geoJson) => {
     } else if (geoJson.type === 'Feature') {
       processCoordinates(geoJson.geometry.coordinates, geoJson.geometry.type);
     }
-    
+
     if (minLon !== Infinity) {
       return { minLon, maxLon, minLat, maxLat };
     }
-    
+
     return null;
   } catch (error) {
     console.error('计算边界框失败:', error);
@@ -598,13 +560,13 @@ const calculateGeoJsonBounds = (geoJson) => {
 const handleAdditionalDataReceived = (additionalData) => {
   console.log('收到额外数据:', additionalData);
   // 这里可以根据数据类型做特定处理，如显示图表、生成报告等
-  
+
   // 如果是统计数据，可以触发图表显示
   if (additionalData.type === 'statisticsReport') {
     // 可以在这里触发显示统计图表的逻辑
     console.log('统计报表数据:', additionalData.statistics);
   }
-  
+
   // 如果是数据验证结果，可以显示验证状态
   if (additionalData.type === 'dataValidation') {
     console.log('数据验证结果:', additionalData.validation);
@@ -617,20 +579,20 @@ const handleAdditionalDataReceived = (additionalData) => {
  */
 const handleWaterManagementQuery = (result) => {
   console.log('水务管理查询结果:', result);
-  
+
   // 处理GeoJSON数据
   if (result.geoJson) {
     handleGeoJsonReceived(result.geoJson);
   }
-  
+
   // 处理额外数据
   if (result.additionalData) {
     handleAdditionalDataReceived(result.additionalData);
   }
-  
+
   // 关闭水务管理面板
   closeWaterPanel();
-  
+
   // 如果AI对话框未打开，可以选择性打开以显示结果
   if (!chatDialogVisible.value) {
     // 这里可以选择是否自动打开AI对话框来显示详细结果
@@ -649,11 +611,11 @@ const createWaterAssetStyle = (feature) => {
   const material = properties.material || '';
   const status = properties.status || '正常';
   const riskLevel = properties.riskLevel || '低';
-  
+
   // 根据资产类型和状态选择颜色
   let strokeColor = '#3498db'; // 默认蓝色
   let fillColor = 'rgba(52, 152, 219, 0.2)';
-  
+
   // 根据资产类型调整颜色
   if (assetType.includes('管线')) {
     strokeColor = material === '铸铁' ? '#e67e22' : '#27ae60';
@@ -665,13 +627,13 @@ const createWaterAssetStyle = (feature) => {
     strokeColor = '#f39c12';
     fillColor = 'rgba(243, 156, 18, 0.3)';
   }
-  
+
   // 根据状态调整透明度和样式
   if (status === '维护中') {
     strokeColor = '#e74c3c';
     fillColor = 'rgba(231, 76, 60, 0.4)';
   }
-  
+
   // 根据风险等级调整边框宽度
   let strokeWidth = 2;
   if (riskLevel === '高') {
@@ -679,7 +641,7 @@ const createWaterAssetStyle = (feature) => {
   } else if (riskLevel === '中') {
     strokeWidth = 3;
   }
-  
+
   return new Style({
     stroke: new Stroke({
       color: strokeColor,
@@ -705,11 +667,16 @@ const createWaterAssetStyle = (feature) => {
 <style scoped>
 /* 地图容器样式 */
 #map {
-  width: 100%;      /* 宽度占满父容器 */
-  height: 100%;     /* 高度占满父容器 */
-  position: absolute; /* 绝对定位 */
-  top: 0;           /* 顶部对齐 */
-  left: 0;          /* 左侧对齐 */
+  width: 100%;
+  /* 宽度占满父容器 */
+  height: 100%;
+  /* 高度占满父容器 */
+  position: absolute;
+  /* 绝对定位 */
+  top: 0;
+  /* 顶部对齐 */
+  left: 0;
+  /* 左侧对齐 */
 }
 
 /* 
