@@ -87,7 +87,7 @@ import {Style, Stroke, Fill, Circle} from 'ol/style';
 // ========== 响应式数据定义 ==========
 
 /** 地图中心点坐标 [经度, 纬度] */
-const center = ref([112, 25]);
+const center = ref([119, 32]);
 
 /** 地图投影坐标系 */
 const projection = ref("EPSG:4326");
@@ -135,21 +135,11 @@ onMounted(async () => {
     // 遍历图层列表，配置每个图层
     layerList.forEach((layer: any) => {
       let layerName = layer.name;
-      
-      // 特殊处理：ne:countries图层默认显示，其他图层默认隐藏
-      if (layerName === 'postgis:counties_china') {
-        dynamicLayerList.value.push({
+      dynamicLayerList.value.push({
           name: layerName,                 // 图层名称
           url: `/geoserver/wms`,          // WMS服务URL
           visible: true,                  // 默认可见
         });
-      } else {
-        dynamicLayerList.value.push({
-          name: layerName,                 // 图层名称
-          url: `/geoserver/wms`,          // WMS服务URL
-          visible: false,                 // 默认隐藏
-        });
-      }
     });
 
     // ========== 加载图层组 ==========
