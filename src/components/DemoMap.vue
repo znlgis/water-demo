@@ -55,6 +55,7 @@
     :visible="chatDialogVisible"
     @close="closeChatDialog"
     @geoJsonReceived="handleGeoJsonReceived"
+    @clearLayers="clearGeoJsonLayers"
   />
 </template>
 
@@ -100,8 +101,8 @@ const mapRef = ref<MapRef | null>(null);
 /** AI对话框显示状态 */
 const chatDialogVisible = ref(false);
 
-/** GeoJSON向量图层 */
-let geoJsonLayer = null;
+/** GeoJSON向量图层列表 - 支持多个图层叠加 */
+const geoJsonLayers = ref([]);
 
 // ========== 生命周期钩子 ==========
 
@@ -213,11 +214,6 @@ const handleGeoJsonReceived = (geoJson) => {
       return;
     }
     
-    // 如果之前存在GeoJSON图层，先移除
-    if (geoJsonLayer) {
-      map.removeLayer(geoJsonLayer);
-    }
-    
     // 创建GeoJSON格式解析器
     const format = new GeoJSON();
     
@@ -228,38 +224,81 @@ const handleGeoJsonReceived = (geoJson) => {
       })
     });
     
-    // 创建样式
-    const style = new Style({
-      stroke: new Stroke({
-        color: 'red',
-        width: 2
-      }),
-      fill: new Fill({
-        color: 'rgba(255, 0, 0, 0.1)'
-      }),
-      image: new Circle({
-        radius: 8,
-        fill: new Fill({
-          color: 'red'
-        }),
-        stroke: new Stroke({
-          color: 'white',
-          width: 2
-        })
-      })
-    });
+    // 创建增强的样式函数
+    const getFeatureStyle = (feature) => {
+      const geometry = feature.getGeometry();
+      const geometryType = geometry.getType();
+      
+      if (geometryType === 'Point') {
+        // 点：动态涟漪标记
+        return new Style({
+          image: new Circle({
+            radius: 12,
+            fill: new Fill({
+              color: 'rgba(52, 152, 219, 0.8)'
+            }),
+            stroke: new Stroke({
+              color: '#3498db',
+              width: 3
+            })
+          }),
+          // 外层涟漪效果
+          stroke: new Stroke({
+            color: 'rgba(52, 152, 219, 0.3)',
+            width: 8
+          })
+        });
+      } else if (geometryType === 'LineString' || geometryType === 'MultiLineString') {
+        // 线条：渐变色流动效果
+        return new Style({
+          stroke: new Stroke({
+            color: '#e74c3c',
+            width: 4,
+            lineDash: [10, 5],
+            lineDashOffset: 0
+          })
+        });
+      } else {
+        // 多边形：半透明填充 + 脉冲边界
+        return new Style({
+          stroke: new Stroke({
+            color: '#e74c3c',
+            width: 3
+          }),
+          fill: new Fill({
+            color: 'rgba(231, 76, 60, 0.15)'
+          })
+        });
+      }
+    };
     
     // 创建向量图层
-    geoJsonLayer = new VectorLayer({
+    const newLayer = new VectorLayer({
       source: source,
-      style: style
+      style: getFeatureStyle,
+      opacity: 0
     });
     
-    // 添加图层到地图
-    map.addLayer(geoJsonLayer);
+    // 添加图层到地图（智能叠加，不覆盖）
+    map.addLayer(newLayer);
+    geoJsonLayers.value.push(newLayer);
     
-    // 定位到GeoJSON数据
-    fitToGeoJsonData(geoJson);
+    // 添加淡入动画
+    animateLayerFadeIn(newLayer);
+    
+    // 添加脉冲边界动画（仅对多边形）
+    const features = source.getFeatures();
+    features.forEach(feature => {
+      const geometry = feature.getGeometry();
+      if (geometry.getType() === 'Polygon' || geometry.getType() === 'MultiPolygon') {
+        startPulseAnimation(feature, newLayer);
+      } else if (geometry.getType() === 'Point') {
+        startRippleAnimation(feature, newLayer);
+      }
+    });
+    
+    // 智能定位到新的GeoJSON数据
+    fitToGeoJsonData(geoJson, geoJsonLayers.value.length === 1);
     
   } catch (error) {
     console.error('处理GeoJSON数据失败:', error);
@@ -267,10 +306,142 @@ const handleGeoJsonReceived = (geoJson) => {
 };
 
 /**
+ * 清除所有GeoJSON图层（带溶解动画）
+ */
+const clearGeoJsonLayers = () => {
+  if (!mapRef.value) return;
+  
+  const map = mapRef.value.map;
+  if (!map) return;
+  
+  // 为每个图层添加溶解动画
+  geoJsonLayers.value.forEach((layer, index) => {
+    animateLayerFadeOut(layer, () => {
+      map.removeLayer(layer);
+    }, index * 200); // 错开动画时间
+  });
+  
+  // 清空图层数组
+  geoJsonLayers.value = [];
+  
+  // 重置地图视野到初始位置
+  setTimeout(() => {
+    resetMapView();
+  }, geoJsonLayers.value.length * 200 + 500);
+};
+
+/**
+ * 图层淡入动画
+ */
+const animateLayerFadeIn = (layer) => {
+  let opacity = 0;
+  const fadeIn = () => {
+    opacity += 0.05;
+    layer.setOpacity(opacity);
+    if (opacity < 1) {
+      requestAnimationFrame(fadeIn);
+    }
+  };
+  requestAnimationFrame(fadeIn);
+};
+
+/**
+ * 图层淡出动画
+ */
+const animateLayerFadeOut = (layer, callback, delay = 0) => {
+  setTimeout(() => {
+    let opacity = layer.getOpacity();
+    const fadeOut = () => {
+      opacity -= 0.08;
+      layer.setOpacity(Math.max(0, opacity));
+      if (opacity > 0) {
+        requestAnimationFrame(fadeOut);
+      } else {
+        callback();
+      }
+    };
+    requestAnimationFrame(fadeOut);
+  }, delay);
+};
+
+/**
+ * 多边形脉冲边界动画
+ */
+const startPulseAnimation = (feature, layer) => {
+  let pulse = 0;
+  const animate = () => {
+    pulse += 0.1;
+    const width = 3 + Math.sin(pulse) * 2;
+    const alpha = 0.5 + Math.sin(pulse) * 0.3;
+    
+    const style = new Style({
+      stroke: new Stroke({
+        color: `rgba(231, 76, 60, ${alpha})`,
+        width: width
+      }),
+      fill: new Fill({
+        color: 'rgba(231, 76, 60, 0.15)'
+      })
+    });
+    
+    feature.setStyle(style);
+    requestAnimationFrame(animate);
+  };
+  animate();
+};
+
+/**
+ * 点涟漪动画
+ */
+const startRippleAnimation = (feature, layer) => {
+  let ripple = 0;
+  const animate = () => {
+    ripple += 0.15;
+    const radius = 12 + Math.sin(ripple) * 6;
+    const alpha = 0.8 - Math.abs(Math.sin(ripple)) * 0.3;
+    
+    const style = new Style({
+      image: new Circle({
+        radius: radius,
+        fill: new Fill({
+          color: `rgba(52, 152, 219, ${alpha})`
+        }),
+        stroke: new Stroke({
+          color: '#3498db',
+          width: 3
+        })
+      })
+    });
+    
+    feature.setStyle(style);
+    requestAnimationFrame(animate);
+  };
+  animate();
+};
+
+/**
+ * 重置地图视野到初始位置
+ */
+const resetMapView = () => {
+  if (!mapRef.value) return;
+  
+  const map = mapRef.value.map;
+  if (!map) return;
+  
+  const view = map.getView();
+  view.animate({
+    center: [112, 25],
+    zoom: 10,
+    duration: 1000
+  });
+};
+
+/**
  * 将地图视图定位到GeoJSON数据范围
  * @param geoJson GeoJSON对象
+ * @param isFirstLayer 是否是第一个图层（决定是否使用动画）
  */
-const fitToGeoJsonData = (geoJson) => {
+const fitToGeoJsonData = (geoJson, isFirstLayer = false) => {
   if (!mapRef.value || !geoJson) return;
   
   try {
@@ -305,13 +476,68 @@ const fitToGeoJsonData = (geoJson) => {
       else if (maxDiff < 5) zoomLevel = 7;
       else zoomLevel = 5;
       
-      // 设置地图中心和缩放级别
-      view.setCenter([centerLon, centerLat]);
-      view.setZoom(zoomLevel);
+      // 如果是第一个图层或用户要求，使用动画定位
+      if (isFirstLayer) {
+        view.animate({
+          center: [centerLon, centerLat],
+          zoom: zoomLevel,
+          duration: 1500
+        });
+      } else {
+        // 多个图层时，计算包含所有图层的边界
+        const allBounds = calculateAllLayersBounds();
+        if (allBounds) {
+          const allCenterLon = (allBounds.minLon + allBounds.maxLon) / 2;
+          const allCenterLat = (allBounds.minLat + allBounds.maxLat) / 2;
+          const allLonDiff = allBounds.maxLon - allBounds.minLon;
+          const allLatDiff = allBounds.maxLat - allBounds.minLat;
+          const allMaxDiff = Math.max(allLonDiff, allLatDiff);
+          
+          let allZoomLevel = 10;
+          if (allMaxDiff < 0.01) allZoomLevel = 15;
+          else if (allMaxDiff < 0.1) allZoomLevel = 12;
+          else if (allMaxDiff < 1) allZoomLevel = 9;
+          else if (allMaxDiff < 5) allZoomLevel = 7;
+          else allZoomLevel = 5;
+          
+          view.animate({
+            center: [allCenterLon, allCenterLat],
+            zoom: allZoomLevel,
+            duration: 1000
+          });
+        }
+      }
     }
   } catch (error) {
     console.error('定位到GeoJSON数据失败:', error);
   }
+};
+
+/**
+ * 计算所有图层的综合边界框
+ */
+const calculateAllLayersBounds = () => {
+  let minLon = Infinity, maxLon = -Infinity;
+  let minLat = Infinity, maxLat = -Infinity;
+  
+  geoJsonLayers.value.forEach(layer => {
+    const source = layer.getSource();
+    const features = source.getFeatures();
+    
+    features.forEach(feature => {
+      const geometry = feature.getGeometry();
+      const extent = geometry.getExtent();
+      minLon = Math.min(minLon, extent[0]);
+      maxLon = Math.max(maxLon, extent[2]);
+      minLat = Math.min(minLat, extent[1]);
+      maxLat = Math.max(maxLat, extent[3]);
+    });
+  });
+  
+  if (minLon !== Infinity) {
+    return { minLon, maxLon, minLat, maxLat };
+  }
+  return null;
 };
 
 /**
