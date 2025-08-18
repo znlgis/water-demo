@@ -1,18 +1,24 @@
 <!--
   AI对话框组件
   功能：
-  1. 提供居中的对话框界面
-  2. 支持用户输入和AI回复的显示
+  1. 提供固定悬浮的对话框界面（非遮挡核心区域）
+  2. 支持用户输入和AI回复的显示（支持Markdown渲染）
   3. 集成Dify API进行AI对话
   4. 解析AI返回的GeoJSON并通知父组件渲染
+  5. 提供清除按钮和响应式设计
 -->
 <template>
-  <div class="ai-chat-overlay" v-if="visible">
+  <div class="ai-chat-container" v-if="visible">
     <div class="ai-chat-dialog">
       <!-- 对话框头部 -->
       <div class="chat-header">
-        <h3>AI地图助手</h3>
-        <button class="close-button" @click="closeDialog">×</button>
+        <h3>🤖 AI地图助手</h3>
+        <div class="header-buttons">
+          <button class="clear-button" @click="clearMessages" title="清除对话">
+            🗑️
+          </button>
+          <button class="close-button" @click="closeDialog" title="关闭">×</button>
+        </div>
       </div>
       
       <!-- 消息显示区域 -->
@@ -22,11 +28,23 @@
           :key="message.id"
           :class="['message', message.type]"
         >
-          <div class="message-content">{{ message.content }}</div>
+          <div class="message-content" v-html="formatMessageContent(message.content)"></div>
           <div class="message-time">{{ formatTime(message.timestamp) }}</div>
         </div>
         <div v-if="isLoading" class="message ai loading">
-          <div class="message-content">AI正在思考中...</div>
+          <div class="loading-indicator">
+            <div class="loading-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <div class="loading-text">AI正在思考中...</div>
+          </div>
+        </div>
+        <!-- 错误重试区域 -->
+        <div v-if="lastError" class="error-message">
+          <div class="error-content">{{ lastError }}</div>
+          <button class="retry-button" @click="retryLastMessage">重试</button>
         </div>
       </div>
       
@@ -44,7 +62,8 @@
           :disabled="isLoading || !currentMessage.trim()"
           class="send-button"
         >
-          发送
+          <span v-if="!isLoading">发送</span>
+          <span v-else>...</span>
         </button>
       </div>
     </div>
@@ -66,6 +85,7 @@ const props = defineProps<Props>();
 const emit = defineEmits<{
   close: [];
   geoJsonReceived: [geoJson: any];
+  clearLayers: [];
 }>();
 
 // 消息接口定义
@@ -81,6 +101,8 @@ const messages = ref<Message[]>([]);
 const currentMessage = ref('');
 const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
+const lastError = ref<string | null>(null);
+const lastUserMessage = ref<string>('');
 
 // Dify API服务实例
 const difyService = new DifyApiService();
@@ -94,6 +116,9 @@ let messageIdCounter = 0;
 const sendMessage = async () => {
   if (!currentMessage.value.trim() || isLoading.value) return;
   
+  // 清除之前的错误
+  lastError.value = null;
+  
   // 添加用户消息
   const userMessage: Message = {
     id: messageIdCounter++,
@@ -103,7 +128,7 @@ const sendMessage = async () => {
   };
   
   messages.value.push(userMessage);
-  const userInput = currentMessage.value;
+  lastUserMessage.value = currentMessage.value;
   currentMessage.value = '';
   
   // 滚动到底部
@@ -115,7 +140,7 @@ const sendMessage = async () => {
   
   try {
     // 调用Dify API
-    const response = await difyService.sendMessage(userInput);
+    const response = await difyService.sendMessage(lastUserMessage.value);
     
     // 添加AI回复
     const aiMessage: Message = {
@@ -134,16 +159,7 @@ const sendMessage = async () => {
     
   } catch (error) {
     console.error('AI对话出错:', error);
-    
-    // 添加错误消息
-    const errorMessage: Message = {
-      id: messageIdCounter++,
-      type: 'ai',
-      content: '抱歉，AI服务暂时不可用，请稍后再试。',
-      timestamp: new Date()
-    };
-    
-    messages.value.push(errorMessage);
+    lastError.value = error.message || 'AI服务暂时不可用，请稍后再试。';
   } finally {
     isLoading.value = false;
     await nextTick();
@@ -156,6 +172,31 @@ const sendMessage = async () => {
  */
 const closeDialog = () => {
   emit('close');
+};
+
+/**
+ * 清除所有消息
+ */
+const clearMessages = () => {
+  messages.value = [];
+  lastError.value = null;
+  messageIdCounter = 0;
+  // 清除地图上的GeoJSON图层
+  emit('clearLayers');
+  // 清除后重新添加欢迎消息
+  addWelcomeMessage();
+  nextTick(() => scrollToBottom());
+};
+
+/**
+ * 重试上一条消息
+ */
+const retryLastMessage = async () => {
+  if (lastUserMessage.value && !isLoading.value) {
+    lastError.value = null;
+    currentMessage.value = lastUserMessage.value;
+    await sendMessage();
+  }
 };
 
 /**
@@ -178,6 +219,18 @@ const formatTime = (timestamp: Date): string => {
 };
 
 /**
+ * 格式化消息内容，支持基本Markdown
+ */
+const formatMessageContent = (content: string): string => {
+  // 简单的Markdown支持
+  return content
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    .replace(/`(.*?)`/g, '<code>$1</code>')
+    .replace(/\n/g, '<br>');
+};
+
+/**
  * 添加初始欢迎消息
  */
 const addWelcomeMessage = () => {
@@ -185,7 +238,7 @@ const addWelcomeMessage = () => {
     const welcomeMessage: Message = {
       id: messageIdCounter++,
       type: 'ai',
-      content: '您好！我是AI地图助手，我可以帮您在地图上查找和显示地理信息。请告诉我您想查看什么地方的地理数据。',
+      content: '您好！我是**AI地图助手**，我可以帮您在地图上查找和显示地理信息。请告诉我您想查看什么地方的地理数据。\n\n例如：\n- 显示北京市的边界\n- 标记上海市的位置\n- 查看深圳市区域',
       timestamp: new Date()
     };
     messages.value.push(welcomeMessage);
@@ -203,78 +256,147 @@ watch(() => props.visible, (newVisible) => {
 </script>
 
 <style scoped>
-.ai-chat-overlay {
+/* 固定悬浮容器 - 半透明卡片设计 */
+.ai-chat-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background-color: rgba(0, 0, 0, 0.5);
-  display: flex;
-  justify-content: center;
-  align-items: center;
+  top: 20px;
+  right: 20px;
+  width: 30%;
+  min-width: 350px;
+  max-width: 500px;
+  max-height: 80vh;
   z-index: 1000;
+  animation: slideInRight 0.3s ease-out;
 }
 
+/* 响应式设计 - 移动端 */
+@media (max-width: 768px) {
+  .ai-chat-container {
+    width: 80%;
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    min-width: unset;
+    max-width: unset;
+  }
+}
+
+@media (max-width: 480px) {
+  .ai-chat-container {
+    width: 95%;
+    top: 5px;
+    right: 2.5%;
+    left: 2.5%;
+  }
+}
+
+/* 滑入动画 */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+/* 对话框主体 - 半透明背景 + 阴影 */
 .ai-chat-dialog {
-  background: white;
-  border-radius: 12px;
-  width: 500px;
-  height: 600px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 16px;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.15), 0 8px 20px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
   overflow: hidden;
+  max-height: 80vh;
 }
 
+/* 头部样式 */
 .chat-header {
-  background: #2c3e50;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 16px 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+  border-radius: 16px 16px 0 0;
 }
 
 .chat-header h3 {
   margin: 0;
   font-size: 18px;
-  font-weight: 500;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.clear-button,
 .close-button {
   background: none;
   border: none;
   color: white;
-  font-size: 24px;
+  font-size: 18px;
   cursor: pointer;
-  padding: 0;
-  width: 30px;
-  height: 30px;
+  padding: 6px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
 }
 
+.clear-button:hover,
 .close-button:hover {
   background-color: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
 }
 
+.close-button {
+  font-size: 20px;
+  font-weight: bold;
+}
+
+/* 消息区域 */
 .chat-messages {
   flex: 1;
-  padding: 20px;
+  padding: 16px;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  min-height: 200px;
+  max-height: 400px;
 }
 
 .message {
   display: flex;
   flex-direction: column;
-  max-width: 80%;
+  max-width: 85%;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .message.user {
@@ -282,37 +404,128 @@ watch(() => props.visible, (newVisible) => {
 }
 
 .message.user .message-content {
-  background: #3498db;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 12px 16px;
   border-radius: 18px 18px 4px 18px;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
 .message.ai .message-content {
-  background: #ecf0f1;
+  background: rgba(236, 240, 241, 0.9);
   color: #2c3e50;
   padding: 12px 16px;
   border-radius: 18px 18px 18px 4px;
+  border: 1px solid rgba(52, 152, 219, 0.1);
 }
 
-.message.loading .message-content {
-  background: #ecf0f1;
-  color: #7f8c8d;
+/* 加载指示器 */
+.loading-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: rgba(236, 240, 241, 0.9);
   padding: 12px 16px;
   border-radius: 18px 18px 18px 4px;
+  border: 1px solid rgba(52, 152, 219, 0.1);
+}
+
+.loading-dots {
+  display: flex;
+  gap: 4px;
+}
+
+.loading-dots span {
+  width: 6px;
+  height: 6px;
+  background: #3498db;
+  border-radius: 50%;
+  animation: loadingPulse 1.4s infinite ease-in-out both;
+}
+
+.loading-dots span:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots span:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes loadingPulse {
+  0%, 80%, 100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
+}
+
+.loading-text {
+  color: #7f8c8d;
+  font-style: italic;
+  font-size: 14px;
+}
+
+/* 错误消息样式 */
+.error-message {
+  background: rgba(231, 76, 60, 0.1);
+  border: 1px solid rgba(231, 76, 60, 0.3);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 8px 0;
+  animation: shakeError 0.5s ease;
+}
+
+@keyframes shakeError {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+.error-content {
+  color: #e74c3c;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.retry-button {
+  background: #e74c3c;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-button:hover {
+  background: #c0392b;
+}
+
+/* 消息内容样式 */
+.message-content {
+  word-wrap: break-word;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.message-content strong {
+  font-weight: 600;
+}
+
+.message-content em {
   font-style: italic;
 }
 
-.message-content {
-  word-wrap: break-word;
-  line-height: 1.4;
+.message-content code {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 13px;
 }
 
 .message-time {
-  font-size: 12px;
-  color: #7f8c8d;
+  font-size: 11px;
+  color: #95a5a6;
   margin-top: 4px;
-  align-self: flex-end;
+  opacity: 0.8;
 }
 
 .message.user .message-time {
@@ -323,51 +536,61 @@ watch(() => props.visible, (newVisible) => {
   align-self: flex-start;
 }
 
+/* 输入区域 */
 .chat-input-area {
-  padding: 20px;
-  border-top: 1px solid #ecf0f1;
+  padding: 16px;
+  border-top: 1px solid rgba(189, 195, 199, 0.3);
   display: flex;
   gap: 12px;
+  backdrop-filter: blur(5px);
+  background: rgba(255, 255, 255, 0.8);
+  border-radius: 0 0 16px 16px;
 }
 
 .chat-input {
   flex: 1;
   padding: 12px 16px;
-  border: 1px solid #bdc3c7;
-  border-radius: 24px;
+  border: 1px solid rgba(189, 195, 199, 0.4);
+  border-radius: 25px;
   outline: none;
   font-size: 14px;
-  transition: border-color 0.2s;
+  background: rgba(255, 255, 255, 0.9);
+  transition: all 0.2s ease;
 }
 
 .chat-input:focus {
-  border-color: #3498db;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
 }
 
 .chat-input:disabled {
-  background-color: #f8f9fa;
+  background-color: rgba(248, 249, 250, 0.8);
   cursor: not-allowed;
 }
 
 .send-button {
-  padding: 12px 24px;
-  background: #3498db;
+  padding: 12px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   border: none;
-  border-radius: 24px;
+  border-radius: 25px;
   cursor: pointer;
   font-size: 14px;
   font-weight: 500;
-  transition: background-color 0.2s;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
 }
 
 .send-button:hover:not(:disabled) {
-  background: #2980b9;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .send-button:disabled {
   background: #bdc3c7;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 
 /* 滚动条样式 */
@@ -376,16 +599,16 @@ watch(() => props.visible, (newVisible) => {
 }
 
 .chat-messages::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: rgba(241, 241, 241, 0.5);
   border-radius: 3px;
 }
 
 .chat-messages::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: rgba(193, 193, 193, 0.7);
   border-radius: 3px;
 }
 
 .chat-messages::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: rgba(168, 168, 168, 0.8);
 }
 </style>
