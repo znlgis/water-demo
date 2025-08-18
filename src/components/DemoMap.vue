@@ -87,13 +87,13 @@ import {Style, Stroke, Fill, Circle} from 'ol/style';
 // ========== 响应式数据定义 ==========
 
 /** 地图中心点坐标 [经度, 纬度] */
-const center = ref([119, 32]);
+const center = ref([118, 32]);
 
 /** 地图投影坐标系 */
 const projection = ref("EPSG:4326");
 
 /** 地图初始缩放级别 */
-const zoom = ref(10);
+const zoom = ref(7);
 
 /** 动态图层列表：存储从GeoServer获取的单独图层 */
 const dynamicLayerList = ref([]);
