@@ -137,19 +137,19 @@ export default class DifyApiService {
         let geoJson = null;
 
         if (message.includes('北京') || message.includes('beijing')) {
-          content = '为您显示北京市的地理边界信息。这是北京市的行政区域范围，包含了主要的城区和郊区。';
+          content = '为您显示**北京市**的地理边界信息。这是北京市的行政区域范围，包含了主要的*城区*和*郊区*。\n\n`坐标范围`: 116.4074°E, 39.9042°N';
           geoJson = this.generateMockGeoJson('北京市', [116.4074, 39.9042]);
         } else if (message.includes('上海') || message.includes('shanghai')) {
-          content = '为您显示上海市的地理边界信息。上海是中国的经济中心，这里展示的是其行政区域范围。';
+          content = '为您显示**上海市**的地理边界信息。上海是中国的*经济中心*，这里展示的是其行政区域范围。\n\n`特点`: 国际化大都市';
           geoJson = this.generateMockGeoJson('上海市', [121.4737, 31.2304]);
         } else if (message.includes('深圳') || message.includes('shenzhen')) {
-          content = '为您显示深圳市的地理边界信息。深圳是中国的特色经济特区，地理位置优越。';
+          content = '为您显示**深圳市**的地理边界信息。深圳是中国的*特色经济特区*，地理位置优越。\n\n`成立时间`: 1980年\n`地位`: 经济特区';
           geoJson = this.generateMockGeoJson('深圳市', [114.0579, 22.5431]);
         } else if (message.includes('点') || message.includes('位置') || message.includes('坐标')) {
-          content = '为您在地图上标记了一个示例位置点。您可以指定具体的地名或坐标。';
+          content = '为您在地图上标记了一个**示例位置点**。您可以指定具体的地名或坐标。\n\n*提示*: 可以试试输入具体的`经纬度坐标`。';
           geoJson = this.generateMockPointGeoJson([112, 25]);
         } else {
-          content = '我理解您想在地图上查看地理信息。请告诉我具体的地名，比如"北京"、"上海"等，我会为您在地图上显示相应的地理数据。';
+          content = '我理解您想在地图上查看地理信息。请告诉我具体的地名，比如*"北京"*、*"上海"*等，我会为您在地图上显示相应的地理数据。\n\n**支持的功能**:\n- 显示城市边界\n- 标记位置点\n- 查看区域信息';
         }
 
         resolve({ content, geoJson });
