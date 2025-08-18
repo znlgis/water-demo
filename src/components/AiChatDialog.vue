@@ -1,23 +1,24 @@
 <!--
-  AI对话框组件
+  AI对话框组件 - AI优先设计版本
   功能：
-  1. 提供固定悬浮的对话框界面（非遮挡核心区域）
+  1. 提供固定在地图底部中央的对话框界面（AI优先设计）
   2. 支持用户输入和AI回复的显示（支持Markdown渲染）
   3. 集成Dify API进行AI对话
   4. 解析AI返回的GeoJSON并通知父组件渲染
   5. 提供清除按钮和响应式设计
+  6. 始终可见，突出AI的核心地位
 -->
 <template>
   <div class="ai-chat-container" v-if="visible">
     <div class="ai-chat-dialog">
-      <!-- 对话框头部 -->
+      <!-- 对话框头部 - 移除关闭按钮，突出AI地位 -->
       <div class="chat-header">
-        <h3>🤖 AI地图助手</h3>
+        <h3>🤖 AI智能助手</h3>
         <div class="header-buttons">
           <button class="clear-button" @click="clearMessages" title="清除对话">
             🗑️
           </button>
-          <button class="close-button" @click="closeDialog" title="关闭">×</button>
+          <!-- 移除关闭按钮，AI始终可见 -->
         </div>
       </div>
       
@@ -183,8 +184,12 @@ const sendMessage = async () => {
 /**
  * 关闭对话框
  */
+/**
+ * 关闭对话框 - 在AI优先设计中不再执行关闭操作
+ */
 const closeDialog = () => {
-  emit('close');
+  // AI对话框始终可见，不执行关闭操作
+  console.log('AI对话框始终可见，AI优先设计');
 };
 
 /**
@@ -269,48 +274,49 @@ watch(() => props.visible, (newVisible) => {
 </script>
 
 <style scoped>
-/* 固定悬浮容器 - 半透明卡片设计 */
+/* AI对话框容器 - 底部中央固定定位，突出AI地位 */
 .ai-chat-container {
   position: fixed;
-  top: 20px;
-  right: 20px;
-  width: 30%;
-  min-width: 350px;
-  max-width: 500px;
-  max-height: 80vh;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 40%;
+  min-width: 400px;
+  max-width: 600px;
+  max-height: 60vh;
   z-index: 1000;
-  animation: slideInRight 0.3s ease-out;
+  animation: slideInUp 0.3s ease-out;
 }
 
-/* 响应式设计 - 移动端 */
+/* 响应式设计 - 移动端，保持底部中央定位 */
 @media (max-width: 768px) {
   .ai-chat-container {
-    width: 80%;
-    top: 10px;
-    right: 10px;
-    left: 10px;
+    width: 85%;
+    bottom: 10px;
     min-width: unset;
     max-width: unset;
+    left: 50%;
+    transform: translateX(-50%);
   }
 }
 
 @media (max-width: 480px) {
   .ai-chat-container {
     width: 95%;
-    top: 5px;
-    right: 2.5%;
-    left: 2.5%;
+    bottom: 5px;
+    left: 50%;
+    transform: translateX(-50%);
   }
 }
 
-/* 滑入动画 */
-@keyframes slideInRight {
+/* 滑入动画 - 从底部向上滑入 */
+@keyframes slideInUp {
   from {
-    transform: translateX(100%);
+    transform: translateX(-50%) translateY(100%);
     opacity: 0;
   }
   to {
-    transform: translateX(0);
+    transform: translateX(-50%) translateY(0);
     opacity: 1;
   }
 }
