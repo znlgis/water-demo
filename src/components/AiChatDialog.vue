@@ -11,9 +11,25 @@
 <template>
   <div class="ai-chat-container" v-if="visible">
     <div class="ai-chat-dialog">
-      <!-- 对话框头部 - 移除关闭按钮，突出AI地位 -->
+      <!-- 对话框头部 - 添加模式切换 -->
       <div class="chat-header">
         <h3>🤖 AI智能助手</h3>
+        <div class="mode-switcher">
+          <button 
+            :class="['mode-btn', { active: currentMode === 'query' }]"
+            @click="switchMode('query')"
+            title="自然语言查询助手"
+          >
+            🗺️ 查询助手
+          </button>
+          <button 
+            :class="['mode-btn', { active: currentMode === 'analysis' }]"
+            @click="switchMode('analysis')"
+            title="智能分析助手"
+          >
+            📊 分析助手
+          </button>
+        </div>
         <div class="header-buttons">
           <button class="clear-button" @click="clearMessages" title="清除对话">
             🗑️
@@ -59,7 +75,7 @@
           v-model="currentMessage"
           @keyup.enter="sendMessage"
           :disabled="isLoading"
-          placeholder="请输入您的问题，例如：显示湾仔区的PVC淡水管线，或显示服役超过30年的铸铁阀门"
+          :placeholder="currentMode === 'query' ? '请输入您的问题，例如：显示湾仔区的PVC淡水管线，或显示服役超过30年的铸铁阀门' : '请输入您要分析的问题，例如：分析管线漏损的主要原因，或评估设备维护优先级'"
           class="chat-input"
         />
         <button 
@@ -111,12 +127,27 @@ const isLoading = ref(false);
 const messagesContainer = ref<HTMLElement | null>(null);
 const lastError = ref<string | null>(null);
 const lastUserMessage = ref<string>('');
+const currentMode = ref<'query' | 'analysis'>('query'); // 当前模式：query=自然语言查询，analysis=智能分析
 
 // Dify API服务实例
 const difyService = new DifyApiService();
 
 // 消息ID计数器
 let messageIdCounter = 0;
+
+/**
+ * 切换AI模式
+ */
+const switchMode = (mode: 'query' | 'analysis') => {
+  if (currentMode.value === mode) return;
+  
+  currentMode.value = mode;
+  
+  // 清除之前的对话，添加新模式的欢迎消息
+  clearMessages();
+  addWelcomeMessage();
+  nextTick(() => scrollToBottom());
+};
 
 /**
  * 发送消息到AI
@@ -147,8 +178,16 @@ const sendMessage = async () => {
   isLoading.value = true;
   
   try {
-    // 调用Dify API
-    const response = await difyService.sendMessage(lastUserMessage.value);
+    let response;
+    
+    // 根据当前模式调用不同的API
+    if (currentMode.value === 'query') {
+      // 自然语言查询助手 - 调用工作流API
+      response = await difyService.sendMessage(lastUserMessage.value);
+    } else {
+      // 智能分析助手 - 调用智能体API
+      response = await difyService.sendAgentMessage(lastUserMessage.value);
+    }
     
     // 添加AI回复
     const aiMessage: Message = {
@@ -161,8 +200,8 @@ const sendMessage = async () => {
     
     messages.value.push(aiMessage);
     
-    // 检查是否包含GeoJSON数据
-    if (response.geoJson) {
+    // 查询模式才处理GeoJSON数据
+    if (currentMode.value === 'query' && response.geoJson) {
       emit('geoJsonReceived', response.geoJson);
     }
 
@@ -253,10 +292,18 @@ const formatMessageContent = (content: string): string => {
  */
 const addWelcomeMessage = () => {
   if (messages.value.length === 0) {
+    let welcomeContent;
+    
+    if (currentMode.value === 'query') {
+      welcomeContent = '您好！我是**自然语言查询助手**，我可以帮您在地图上查找和显示地理信息。请告诉我您想查看什么地方的地理数据。\n\n例如：\n- 显示湾仔区的PVC淡水管线\n- 查看服役超过30年的铸铁阀门\n- 标记中环区的水务设施';
+    } else {
+      welcomeContent = '您好！我是**智能分析助手**，我可以为您提供水务数据的深度分析和洞察。请告诉我您想要分析的问题。\n\n例如：\n- 分析管线漏损的主要原因\n- 评估设备维护优先级\n- 预测未来的设备更换需求';
+    }
+    
     const welcomeMessage: Message = {
       id: messageIdCounter++,
       type: 'ai',
-      content: '您好！我是**AI地图助手**，我可以帮您在地图上查找和显示地理信息。请告诉我您想查看什么地方的地理数据。\n\n例如：\n- 显示北京市的边界\n- 标记上海市的位置\n- 查看深圳市区域',
+      content: welcomeContent,
       timestamp: new Date()
     };
     messages.value.push(welcomeMessage);
@@ -307,6 +354,15 @@ watch(() => props.visible, (newVisible) => {
     left: 50%;
     transform: translateX(-50%);
   }
+  
+  .mode-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  
+  .chat-header h3 {
+    font-size: 16px;
+  }
 }
 
 /* 滑入动画 - 从底部向上滑入 */
@@ -352,6 +408,37 @@ watch(() => props.visible, (newVisible) => {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* 模式切换器样式 */
+.mode-switcher {
+  display: flex;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 4px;
+}
+
+.mode-btn {
+  background: none;
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.mode-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.mode-btn.active {
+  background: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .header-buttons {

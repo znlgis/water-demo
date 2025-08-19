@@ -24,7 +24,7 @@ export default class DifyApiService {
   }
 
   /**
-   * 发送消息到Dify AI (SSE streaming)
+   * 发送消息到Dify AI工作流API (自然语言查询助手)
    * 以流式获取回答，实时回调增量，再组装完整结果做后处理
    * @param {string} message
    * @param {Object} opts
@@ -84,6 +84,57 @@ export default class DifyApiService {
     } catch (err) {
       if (signal?.aborted) throw new Error("已取消");
       throw new Error(err?.message || "AI服务调用失败");
+    }
+  }
+
+  /**
+   * 发送消息到Dify智能体API (智能分析助手)
+   * 调用chat-messages接口，实时返回AI分析结果
+   * @param {string} message
+   * @param {Object} opts
+   * @param {AbortSignal} opts.signal  可选中断
+   * @returns {Promise<{content:string, additionalData?:any}>}
+   */
+  async sendAgentMessage(message, opts = {}) {
+    const { signal } = opts;
+    const requestData = {
+      inputs: {},
+      query: message,
+      response_mode: "blocking",
+      conversation_id: this.conversationId || "",
+      user: "analysis-user",
+    };
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/chat-messages`,
+        requestData,
+        {
+          signal,
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (!response?.data) throw new Error("智能体服务返回空数据");
+
+      // 解析智能体响应
+      const content = response.data.answer || response.data.data?.answer || "（无分析结果）";
+      
+      // 保存会话ID用于后续对话
+      if (response.data.conversation_id) {
+        this.conversationId = response.data.conversation_id;
+      }
+
+      return {
+        content: content,
+        additionalData: response.data.metadata || null
+      };
+    } catch (err) {
+      if (signal?.aborted) throw new Error("已取消");
+      throw new Error(err?.message || "智能分析服务调用失败");
     }
   }
 
