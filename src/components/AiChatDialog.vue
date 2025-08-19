@@ -45,14 +45,23 @@
           :key="message.id"
           :class="['message', message.type]"
         >
-          <div class="message-content" v-html="formatMessageContent(message.content)"></div>
-          <!-- 额外数据展示区域 -->
-          <div v-if="message.additionalData" class="additional-data-container">
-            <WaterDataVisualization :data="message.additionalData" />
+          <div class="message-content">
+            <!-- 流式显示时使用纯文本，避免HTML解析延迟 -->
+            <div v-if="message.isStreaming" style="white-space: pre-wrap;">{{ message.content }}</div>
+            <div v-else v-html="formatMessageContent(message.content)"></div>
+          </div>
+          <!-- 流式显示指示器 -->
+          <div v-if="message.isStreaming" class="streaming-indicator">
+            <div class="streaming-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <span class="streaming-text">正在输入...</span>
           </div>
           <div class="message-time">{{ formatTime(message.timestamp) }}</div>
         </div>
-        <div v-if="isLoading" class="message ai loading">
+        <div v-if="isLoading && !hasStreamingMessage" class="message ai loading">
           <div class="loading-indicator">
             <div class="loading-dots">
               <span></span>
@@ -92,9 +101,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, nextTick, defineEmits } from 'vue';
+import { ref, nextTick, computed, watch } from 'vue';
 import DifyApiService from '../services/DifyApiService';
-import WaterDataVisualization from './WaterDataVisualization.vue';
 
 // 组件属性
 interface Props {
@@ -108,7 +116,6 @@ const emit = defineEmits<{
   close: [];
   geoJsonReceived: [geoJson: any];
   clearLayers: [];
-  additionalDataReceived: [data: any];
 }>();
 
 // 消息接口定义
@@ -117,7 +124,7 @@ interface Message {
   type: 'user' | 'ai';
   content: string;
   timestamp: Date;
-  additionalData?: any;
+  isStreaming?: boolean;
 }
 
 // 响应式数据
@@ -134,6 +141,11 @@ const difyService = new DifyApiService();
 
 // 消息ID计数器
 let messageIdCounter = 0;
+
+// 计算属性：检查是否有流式消息
+const hasStreamingMessage = computed(() => {
+  return messages.value.some(msg => msg.isStreaming);
+});
 
 /**
  * 切换AI模式
@@ -177,42 +189,86 @@ const sendMessage = async () => {
   // 设置加载状态
   isLoading.value = true;
   
+  // 创建一个流式显示的AI消息
+  const aiMessage: Message = {
+    id: messageIdCounter++,
+    type: 'ai',
+    content: '',
+    timestamp: new Date(),
+    isStreaming: true
+  };
+  
+  messages.value.push(aiMessage);
+  const aiMessageIndex = messages.value.length - 1; // 记录AI消息的索引
+  await nextTick();
+  scrollToBottom();
+  
   try {
     let response;
+    
+    // 定义流式回调函数
+    const onToken = (token: string) => {
+      // 无论是哪种模式，都进行增量追加
+      aiMessage.content += token;
+      
+      // 滚动到底部以显示新内容
+      nextTick(() => {
+        scrollToBottom();
+      });
+    };
+    
+    const onEvent = (event: any) => {
+      // 根据事件类型处理
+      if (event.event === 'node_started') {
+        // 显示节点开始信息
+        console.log('正在执行:', event.data?.title);
+      } else if (event.event === 'node_finished') {
+        console.log('完成节点:', event.data?.title);
+      }
+    };
     
     // 根据当前模式调用不同的API
     if (currentMode.value === 'query') {
       // 自然语言查询助手 - 调用工作流API
-      response = await difyService.sendMessage(lastUserMessage.value);
+      response = await difyService.sendMessage(lastUserMessage.value, {
+        onToken,
+        onEvent,
+        signal: undefined
+      });
     } else {
       // 智能分析助手 - 调用智能体API
-      response = await difyService.sendAgentMessage(lastUserMessage.value);
+      response = await difyService.sendAgentMessage(lastUserMessage.value, {
+        onToken,
+        onEvent,
+        signal: undefined
+      });
     }
     
-    // 添加AI回复
-    const aiMessage: Message = {
-      id: messageIdCounter++,
-      type: 'ai',
-      content: response.content,
-      timestamp: new Date(),
-      additionalData: response.additionalData || null
-    };
+    // 更新AI消息的最终状态
+    aiMessage.isStreaming = false;
     
-    messages.value.push(aiMessage);
+    // 如果流式更新后内容为空，则使用最终响应内容
+    if (!aiMessage.content && response.content) {
+      aiMessage.content = response.content;
+    }
+    
+    // 通过索引更新来确保最终状态也被正确更新
+    messages.value[aiMessageIndex] = { ...aiMessage };
     
     // 查询模式才处理GeoJSON数据
     if (currentMode.value === 'query' && response.geoJson) {
       emit('geoJsonReceived', response.geoJson);
     }
-
-    // 处理额外数据（如统计图表、验证结果等）
-    if (response.additionalData) {
-      emit('additionalDataReceived', response.additionalData);
-    }
     
   } catch (error) {
     console.error('AI对话出错:', error);
     lastError.value = error.message || 'AI服务暂时不可用，请稍后再试。';
+    
+    // 移除失败的AI消息
+    const index = messages.value.findIndex(msg => msg.id === aiMessage.id);
+    if (index > -1) {
+      messages.value.splice(index, 1);
+    }
   } finally {
     isLoading.value = false;
     await nextTick();
@@ -311,7 +367,6 @@ const addWelcomeMessage = () => {
 };
 
 // 监听对话框显示状态，显示时添加欢迎消息
-import { watch } from 'vue';
 watch(() => props.visible, (newVisible) => {
   if (newVisible) {
     addWelcomeMessage();
@@ -523,6 +578,48 @@ watch(() => props.visible, (newVisible) => {
   padding: 12px 16px;
   border-radius: 18px 18px 18px 4px;
   border: 1px solid rgba(52, 152, 219, 0.1);
+}
+
+/* 流式显示指示器 */
+.streaming-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  opacity: 0.7;
+}
+
+.streaming-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.streaming-dots span {
+  width: 4px;
+  height: 4px;
+  background: #3498db;
+  border-radius: 50%;
+  animation: streamingPulse 1.2s infinite ease-in-out both;
+}
+
+.streaming-dots span:nth-child(1) { animation-delay: -0.24s; }
+.streaming-dots span:nth-child(2) { animation-delay: -0.12s; }
+
+@keyframes streamingPulse {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.streaming-text {
+  color: #7f8c8d;
+  font-style: italic;
+  font-size: 12px;
 }
 
 /* 加载指示器 */

@@ -13,14 +13,16 @@ import axios from "axios";
 export default class DifyApiService {
   // Dify API配置
   baseUrl;
-  apiKey;
+  apiKeyWorkflow;
+  apiKeyAgent;
   conversationId = null;
 
   constructor() {
     // 从环境变量或配置中获取Dify API设置
     // 在实际部署时需要配置正确的Dify API端点和密钥
     this.baseUrl = "http://127.0.0.1:580/v1";
-    this.apiKey = "app-d86VpODIGUAafLAWyKtBpGmX";
+    this.apiKeyWorkflow = "app-d86VpODIGUAafLAWyKtBpGmX";
+    this.apiKeyAgent = "app-ZyYzp25wkHgbwTc0eRbq7otz";
   }
 
   /**
@@ -31,54 +33,115 @@ export default class DifyApiService {
    * @param {function(string):void} opts.onToken  每个增量token回调
    * @param {function(Object):void} opts.onEvent  原始事件回调 (eventObj)
    * @param {AbortSignal} opts.signal  可选中断
-   * @returns {Promise<{content:string, geoJson:Object|null, additionalData?:any}>}
+   * @returns {Promise<{content:string, geoJson:Object|null}>}
    */
   async sendMessage(message, opts = {}) {
-    const { onEvent, signal } = opts;
-    // 改为调用 Workflow 应用 API (blocking 模式，不再解析SSE)
+    const { onToken, onEvent, signal } = opts;
+    
+    // 使用streaming模式进行流式对话
     const requestData = {
       inputs: { ms: message },
-      response_mode: "blocking",
+      response_mode: "streaming",
       conversation_id: this.conversationId || "",
       user: "map-user",
     };
 
     try {
-      const response = await axios.post(
-        `${this.baseUrl}/workflows/run`,
-        requestData,
-        {
-          signal,
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
-        }
-      );
+      const response = await fetch(`${this.baseUrl}/workflows/run`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKeyWorkflow}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+        signal
+      });
 
-      if (!response?.data) throw new Error("AI服务返回空数据");
-      if (onEvent) onEvent({ type: "workflow_raw", data: response.data });
-
-      // 解析标准工作流结构
-      const content = response.data.data?.outputs?.data;
-
-      const parsed = this._safeParseJson(content);
-      const arr = Array.isArray(parsed)
-        ? parsed
-        : parsed != null
-        ? [parsed]
-        : [];
-
-      // 解析 content 数组中的 geom 字段并组装为 FeatureCollection
-      let geoJson = [];
-      for (const item of arr) {
-        const geom = item.geom;
-        geoJson.push(this._safeParseJson(geom));
+      if (!response.ok) {
+        throw new Error(`API请求失败: ${response.status}`);
       }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法获取流式响应');
+      }
+
+      let fullContent = '';
+      let finalData = null;
+      const decoder = new TextDecoder();
+
+      try {
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          
+          // 保留最后一行（可能不完整）
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.slice(6);
+              if (jsonStr === '[DONE]') continue;
+
+              try {
+                const data = JSON.parse(jsonStr);
+                if (onEvent) onEvent(data);
+
+                // 处理不同类型的流式事件
+                if (data.event === 'text_chunk' || data.event === 'text_replace') {
+                  const text = data.data?.text || '';
+                  if (text) {
+                    fullContent += text;
+                    if (onToken) {
+                      onToken(text);
+                    }
+                  }
+                } else if (data.event === 'workflow_finished') {
+                  finalData = data.data;
+                } else if (data.event === 'node_finished') {
+                  // 处理节点完成事件，可能包含最终输出
+                  if (data.data?.outputs) {
+                    finalData = data.data;
+                  }
+                } else if (data.event === 'node_started') {
+                  // 节点开始，可以显示进度
+                  console.log('节点开始:', data.data?.title);
+                }
+              } catch (parseError) {
+                console.warn('解析SSE数据失败:', parseError, '原始数据:', jsonStr);
+              }
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      // 如果有最终数据，解析GeoJSON
+      let geoJson = [];
+      if (finalData?.outputs?.data) {
+        const content = finalData.outputs.data;
+        const parsed = this._safeParseJson(content);
+        const arr = Array.isArray(parsed) ? parsed : parsed != null ? [parsed] : [];
+
+        for (const item of arr) {
+          const geom = item.geom;
+          geoJson.push(this._safeParseJson(geom));
+        }
+      }
+
       console.log("AI解析后的数组:", geoJson);
 
       return {
-        content: content || "（无内容）",
+        content: fullContent || "（无内容）",
         geoJson,
       };
     } catch (err) {
@@ -92,45 +155,109 @@ export default class DifyApiService {
    * 调用chat-messages接口，实时返回AI分析结果
    * @param {string} message
    * @param {Object} opts
+   * @param {function(string):void} opts.onToken  每个增量token回调
+   * @param {function(Object):void} opts.onEvent  原始事件回调 (eventObj)
    * @param {AbortSignal} opts.signal  可选中断
-   * @returns {Promise<{content:string, additionalData?:any}>}
+   * @returns {Promise<{content:string}>}
    */
   async sendAgentMessage(message, opts = {}) {
-    const { signal } = opts;
+    const { onToken, onEvent, signal } = opts;
+    
     const requestData = {
       inputs: {},
       query: message,
-      response_mode: "blocking",
+      response_mode: "streaming",
       conversation_id: this.conversationId || "",
       user: "analysis-user",
     };
 
     try {
-      const response = await axios.post(
-        `${this.baseUrl}/chat-messages`,
-        requestData,
-        {
-          signal,
-          headers: {
-            Authorization: `Bearer ${this.apiKey}`,
-            "Content-Type": "application/json",
-          },
+      const response = await fetch(`${this.baseUrl}/chat-messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${this.apiKeyAgent}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestData),
+        signal
+      });
+
+      if (!response.ok) {
+        throw new Error(`智能体API请求失败: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('无法获取流式响应');
+      }
+
+      let fullContent = '';
+      let conversationId = null;
+      let metadata = null;
+      const decoder = new TextDecoder();
+
+      try {
+        let buffer = '';
+        
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          
+          // 保留最后一行（可能不完整）
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (!trimmedLine) continue;
+            
+            if (trimmedLine.startsWith('data: ')) {
+              const jsonStr = trimmedLine.slice(6);
+              if (jsonStr === '[DONE]') continue;
+
+              try {
+                const data = JSON.parse(jsonStr);
+                if (onEvent) onEvent(data);
+
+                // 处理不同类型的流式事件
+                if (data.event === 'message' || data.event === 'agent_message') {
+                  // 智能体的消息事件 - 通常是增量更新
+                  const text = data.answer || '';
+                  if (text) {
+                    if (onToken) onToken(text);
+                  }
+                } else if (data.event === 'message_end') {
+                  // 保存会话ID和元数据
+                  conversationId = data.conversation_id;
+                  metadata = data.metadata;
+                } else if (data.event === 'message_replace') {
+                  // 智能体完整内容替换事件
+                  const text = data.answer || '';
+                  if (text) {
+                    // 这种情况下，应该清空之前的内容
+                    // 但为了统一处理，我们还是发送增量
+                    if (onToken) onToken(text);
+                  }
+                }
+              } catch (parseError) {
+                console.warn('解析智能体SSE数据失败:', parseError, '原始数据:', jsonStr);
+              }
+            }
+          }
         }
-      );
+      } finally {
+        reader.releaseLock();
+      }
 
-      if (!response?.data) throw new Error("智能体服务返回空数据");
-
-      // 解析智能体响应
-      const content = response.data.answer || response.data.data?.answer || "（无分析结果）";
-      
       // 保存会话ID用于后续对话
-      if (response.data.conversation_id) {
-        this.conversationId = response.data.conversation_id;
+      if (conversationId) {
+        this.conversationId = conversationId;
       }
 
       return {
-        content: content,
-        additionalData: response.data.metadata || null
+        content: fullContent
       };
     } catch (err) {
       if (signal?.aborted) throw new Error("已取消");
