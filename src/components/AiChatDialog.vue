@@ -57,7 +57,7 @@
               <span></span>
               <span></span>
             </div>
-            <span class="streaming-text">正在输入...</span>
+            <span class="streaming-text">AI正在分析...</span>
           </div>
           <div class="message-time">{{ formatTime(message.timestamp) }}</div>
         </div>

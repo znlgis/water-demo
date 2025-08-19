@@ -21,7 +21,7 @@ export default class DifyApiService {
     // 从环境变量或配置中获取Dify API设置
     // 在实际部署时需要配置正确的Dify API端点和密钥
     this.baseUrl = "http://127.0.0.1:580/v1";
-    this.apiKeyWorkflow = "app-d86VpODIGUAafLAWyKtBpGmX";
+    this.apiKeyWorkflow = "app-mlEzpAb94wRGVcgWYxqY2e8n";
     this.apiKeyAgent = "app-ZyYzp25wkHgbwTc0eRbq7otz";
   }
 
